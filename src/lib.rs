@@ -204,6 +204,8 @@ impl d32 {
 
     pub fn total_order(&self, y: &d32) -> bool {
         match (self.class(), y.class()) {
+            // TODO: handle NaN payloads---reps of same payload for
+            // same NaN class should spit out true
             (Class::QuietNaN, Class::QuietNaN) => self.is_sign_minus() && !y.is_sign_minus(),
             (Class::SignalingNaN, Class::SignalingNaN) => {
                 self.is_sign_minus() && !y.is_sign_minus()
