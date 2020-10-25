@@ -9,7 +9,9 @@
 // our view is (spaces denote seps between S, G, T):
 // x xxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx
 // 1 11122223333 44445555666677778888
-#[derive(Clone, Copy)]
+
+#[derive(Clone, Copy, Debug)]
+#[allow(non_camel_case_types)]
 pub struct d32(u32);
 
 pub enum Class {
@@ -36,14 +38,14 @@ impl d32 {
         self.is_finite() && (self.0 & 0x60000000 != 0x60000000)
     }
 
-    fn significand(&self) -> u32 {
+    fn significand(&self) -> u64 {
         // if exponent is of first form, then signif
         // is last 23 bits; otherwise, it's last 21
         // bits, with 100 leading for a total of 24
         if self.exponent_form_one() {
-            self.0 & 0x007fffff
+            (self.0 & 0x007fffff) as u64
         } else {
-            (self.0 & 0x001fffff) | 0x00800000
+            ((self.0 & 0x001fffff) | 0x00800000) as u64
         }
     }
 
@@ -54,9 +56,9 @@ impl d32 {
         if !self.is_finite() {
             0
         } else if self.exponent_form_one() {
-            self.0 & 0x7f800000 >> 23
+            (self.0 & 0x7f800000) >> 23
         } else {
-            self.0 & 0x1fe00000 >> 21
+            (self.0 & 0x1fe00000) >> 21
         }
     }
 
@@ -131,7 +133,7 @@ impl d32 {
     pub fn class(&self) -> Class {
         if self.is_signaling() {
             Class::SignalingNaN
-        } else if self.is_nan() {
+        } else if self.is_quiet() {
             Class::QuietNaN
         } else if self.is_sign_minus() {
             if self.is_infinite() {
@@ -177,7 +179,7 @@ impl d32 {
         self.is_finite()
             && !self.is_zero()
             && self.exponent() < 6
-            && self.significand() * 10u32.pow(self.exponent()) < 1000000
+            && self.significand() * 10u64.pow(self.exponent()) < 1000000
     }
 
     pub fn is_infinite(&self) -> bool {
@@ -204,11 +206,13 @@ impl d32 {
 
     pub fn total_order(&self, y: &d32) -> bool {
         match (self.class(), y.class()) {
-            // TODO: handle NaN payloads---reps of same payload for
-            // same NaN class should spit out true
-            (Class::QuietNaN, Class::QuietNaN) => self.is_sign_minus() && !y.is_sign_minus(),
+            (Class::QuietNaN, Class::QuietNaN) => {
+                (self.is_sign_minus() && !y.is_sign_minus())
+                    || (self.significand() == y.significand())
+            }
             (Class::SignalingNaN, Class::SignalingNaN) => {
                 self.is_sign_minus() && !y.is_sign_minus()
+                    || (self.significand() == y.significand())
             }
             (Class::QuietNaN, Class::SignalingNaN) => self.is_sign_minus(),
             (Class::SignalingNaN, Class::QuietNaN) => !y.is_sign_minus(),
@@ -226,11 +230,11 @@ impl d32 {
                 (self.significand() > y.significand() && self.exponent() >= y.exponent())
                     || (self.exponent() - y.exponent() > 6)
                     || (self.exponent() >= y.exponent()
-                        && (self.significand() as u64 * 10u64.pow(self.exponent() - y.exponent())
-                            >= y.significand() as u64))
+                        && (self.significand() * 10u64.pow(self.exponent() - y.exponent())
+                            >= y.significand()))
                     || (self.exponent() <= y.exponent()
-                        && (self.significand() as u64
-                            > y.significand() as u64 * 10u64.pow(y.exponent() - self.exponent())))
+                        && (self.significand()
+                            > y.significand() * 10u64.pow(y.exponent() - self.exponent())))
             }
             (Class::NegativeNormal, _) => true,
             (_, Class::NegativeNormal) => false,
@@ -238,11 +242,11 @@ impl d32 {
                 (self.significand() > y.significand() && self.exponent() >= y.exponent())
                     || (self.exponent() - y.exponent() > 6)
                     || (self.exponent() >= y.exponent()
-                        && (self.significand() as u64 * 10u64.pow(self.exponent() - y.exponent())
-                            >= y.significand() as u64))
+                        && (self.significand() * 10u64.pow(self.exponent() - y.exponent())
+                            >= y.significand()))
                     || (self.exponent() < y.exponent()
-                        && (self.significand() as u64
-                            > y.significand() as u64 * 10u64.pow(y.exponent() - self.exponent())))
+                        && (self.significand()
+                            > y.significand() * 10u64.pow(y.exponent() - self.exponent())))
             }
             (Class::NegativeSubnormal, _) => true,
             (_, Class::NegativeSubnormal) => false,
@@ -256,11 +260,11 @@ impl d32 {
                 (self.significand() < y.significand() && self.exponent() <= y.exponent())
                     || (y.exponent() - self.exponent() > 6)
                     || (self.exponent() <= y.exponent()
-                        && (self.significand() as u64
-                            <= y.significand() as u64 * 10u64.pow(y.exponent() - self.exponent())))
+                        && (self.significand()
+                            <= y.significand() * 10u64.pow(y.exponent() - self.exponent())))
                     || (self.exponent() > y.exponent()
-                        && (self.significand() as u64 * 10u64.pow(self.exponent() - y.exponent())
-                            < y.significand() as u64))
+                        && (self.significand() * 10u64.pow(self.exponent() - y.exponent())
+                            < y.significand()))
             }
             (Class::PositiveSubnormal, _) => true,
             (_, Class::PositiveSubnormal) => false,
@@ -268,11 +272,11 @@ impl d32 {
                 (self.significand() < y.significand() && self.exponent() <= y.exponent())
                     || (y.exponent() - self.exponent() > 6)
                     || (self.exponent() <= y.exponent()
-                        && (self.significand() as u64
-                            <= y.significand() as u64 * 10u64.pow(y.exponent() - self.exponent())))
+                        && (self.significand()
+                            <= y.significand() * 10u64.pow(y.exponent() - self.exponent())))
                     || (self.exponent() > y.exponent()
-                        && (self.significand() as u64 * 10u64.pow(self.exponent() - y.exponent())
-                            < y.significand() as u64))
+                        && (self.significand() * 10u64.pow(self.exponent() - y.exponent())
+                            < y.significand()))
             }
         }
     }
@@ -292,27 +296,23 @@ impl d32 {
 mod tests {
     use super::*;
     use std::time::Instant;
-    #[test]
-    fn nan_test() {
-        let nan = d32(0x7c000000);
-        let snan = d32(0x7e000000);
-        let inf = d32(0x78000000);
-        let zero = d32(0);
-        let thirty = d32(0x00800003);
+    /*  don't actually run this test
+        i did it merely out of paranoia, this having been my first test of the library
+        exhaustive testing on 32 bits is, to say the least, impractical, and to say the most,
+        fucking nonsense
+        
+        #[test]
+        fn total_order_test() {
+            let now = Instant::now();
 
-        assert!(nan.is_nan());
-        assert!(snan.is_nan());
-        assert!(!inf.is_nan());
-        assert!(!zero.is_nan());
-        assert!(!thirty.is_nan());
+            for i in 0..=u32::MAX {
+                assert!(d32(i).total_order(&d32(i)));
+            }
 
-        let now = Instant::now();
-        nan.is_nan();
-        snan.is_nan();
-        inf.is_nan();
-        zero.is_nan();
-        thirty.is_nan();
-        let elapsed = now.elapsed();
-        println!("Total call time: {} ns", elapsed.as_nanos());
-    }
+            let elapsed = now.elapsed();
+
+            println!("Time: {} micros", elapsed.as_micros());
+            println!("Time per op: {} micros", elapsed.as_micros() as f64 / u32::MAX as f64);
+        }
+    */
 }
